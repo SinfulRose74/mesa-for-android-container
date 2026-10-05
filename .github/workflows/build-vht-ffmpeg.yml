@@ -1,0 +1,131 @@
+name: Build VHT FFmpeg VAAPI ARM64
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04-arm
+
+    container:
+      image: debian:trixie-slim
+
+    steps:
+      - name: Install minimal build dependencies
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            ca-certificates \
+            git \
+            build-essential \
+            pkgconf \
+            libva-dev \
+            libx11-dev
+
+      - name: Fetch FFmpeg 7.1.5
+        run: |
+          git clone \
+            --depth 1 \
+            --branch n7.1.5 \
+            https://github.com/FFmpeg/FFmpeg.git \
+            ffmpeg
+
+      - name: Configure minimal AV1 VAAPI build
+        working-directory: ffmpeg
+        run: |
+          ./configure \
+            --disable-autodetect \
+            --disable-everything \
+            --disable-doc \
+            --disable-debug \
+            --disable-network \
+            --enable-ffmpeg \
+            --enable-vaapi \
+            --enable-xlib \
+            --enable-protocol=file \
+            --enable-demuxer=ivf \
+            --enable-decoder=av1 \
+            --enable-parser=av1 \
+            --enable-hwaccel=av1_vaapi \
+            --enable-muxer=null \
+            --enable-encoder=wrapped_avframe \
+            --enable-filter=buffer \
+            --enable-filter=buffersink \
+            --enable-filter=null
+
+      - name: Build FFmpeg
+        working-directory: ffmpeg
+        run: |
+          make -j"$(nproc)" ffmpeg
+
+      - name: Validate required features
+        working-directory: ffmpeg
+        run: |
+          echo "=== architecture ==="
+          file ffmpeg
+
+          echo "=== VAAPI device support ==="
+          ./ffmpeg -hide_banner -hwaccels
+          ./ffmpeg -hide_banner -hwaccels | grep -q '^vaapi$'
+
+          echo "=== AV1 decoder ==="
+          ./ffmpeg -hide_banner -decoders | grep -E ' av1 '
+          grep -q '^#define CONFIG_AV1_DECODER 1$' config_components.h
+
+          echo "=== AV1 VAAPI hwaccel ==="
+          grep '^#define CONFIG_AV1_VAAPI_HWACCEL ' config_components.h
+          grep -q '^#define CONFIG_AV1_VAAPI_HWACCEL 1$' config_components.h
+
+          echo "=== X11 VAAPI support ==="
+          grep '^#define HAVE_VAAPI_X11 ' config.h
+          grep -q '^#define HAVE_VAAPI_X11 1$' config.h
+
+          echo "=== linked libraries ==="
+          ldd ffmpeg
+
+      - name: Package artifact
+        working-directory: ffmpeg
+        run: |
+          mkdir -p ../artifact
+
+          cp ffmpeg ../artifact/vht-ffmpeg
+
+          {
+            echo "FFmpeg tag: n7.1.5"
+            echo -n "Commit: "
+            git rev-parse HEAD
+            echo
+            ./ffmpeg -version
+            echo
+            ./ffmpeg -buildconf
+            echo
+            echo "CONFIG_AV1:"
+            grep -E 'CONFIG_AV1_(DECODER|VAAPI_HWACCEL)' config_components.h
+            echo
+            echo "VAAPI/X11:"
+            grep -E 'HAVE_VAAPI_X11|CONFIG_VAAPI' config.h
+          } > ../artifact/build-info.txt
+
+          strip ../artifact/vht-ffmpeg
+
+          tar -C ../artifact \
+            -czf ../vht-ffmpeg-7.1.5-linux-arm64-vaapi.tar.gz \
+            vht-ffmpeg \
+            build-info.txt
+
+          cd ..
+          sha256sum \
+            vht-ffmpeg-7.1.5-linux-arm64-vaapi.tar.gz \
+            > sha256sums.txt
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vht-ffmpeg-7.1.5-linux-arm64-vaapi
+          path: |
+            vht-ffmpeg-7.1.5-linux-arm64-vaapi.tar.gz
+            sha256sums.txt
+          retention-days: 30
