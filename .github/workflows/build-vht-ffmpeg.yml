@@ -23,7 +23,9 @@ jobs:
             build-essential \
             pkgconf \
             libva-dev \
-            libx11-dev
+            libx11-dev \
+            libxext-dev \
+            libxv-dev
 
       - name: Fetch FFmpeg 7.1.5
         run: |
