@@ -72,7 +72,7 @@ jobs:
             --prefix=/usr \
             -Dplatforms=x11,wayland \
             -Dgallium-drivers=freedreno,zink,virgl,llvmpipe \
-            -Dgallium-va=disabled \
+            -Dgallium-va=enabled \
             -Dgallium-mediafoundation=disabled \
             -Dvulkan-drivers=freedreno \
             -Dvulkan-layers= \
